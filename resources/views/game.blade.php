@@ -3,6 +3,7 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="csrf-token" content="{{ csrf_token() }}">
 
         <title>Game - {{ config('app.name', 'Laravel') }}</title>
 
@@ -15,5 +16,14 @@
     </head>
     <body class="m-0 p-0 overflow-hidden">
         <div id="game-container" class="w-full h-screen"></div>
+        
+        <script>
+            // Pass server data to JavaScript
+            window.gameConfig = {
+                playerId: @json($playerId),
+                playerName: @json($playerName),
+                gameId: @json($gameId),
+            };
+        </script>
     </body>
 </html>

@@ -5,6 +5,7 @@ import { createPlayer, createPlayerState } from './player';
 import { setupControls, updatePlayerMovement } from './controls';
 import { setupCamera, updateCamera } from './camera';
 import { createWalkingAnimation } from './animations';
+import { initMultiplayer, updateRemotePlayers, broadcastPosition } from './multiplayer';
 
 document.addEventListener('DOMContentLoaded', () => {
     const container = document.getElementById('game-container');
@@ -28,6 +29,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Controls
     const keys = setupControls();
     
+    // Initialize multiplayer if config is available
+    if (window.gameConfig) {
+        initMultiplayer(scene, window.gameConfig);
+    }
+    
     // Animation loop
     const clock = new THREE.Clock();
     
@@ -48,6 +54,10 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Update camera
         updateCamera(camera, playerState, player);
+        
+        // Multiplayer: update remote players and broadcast local position
+        updateRemotePlayers(deltaTime);
+        broadcastPosition(playerState);
         
         renderer.render(scene, camera);
     }
