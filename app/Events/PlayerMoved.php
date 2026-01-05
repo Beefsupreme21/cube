@@ -12,12 +12,13 @@ class PlayerMoved implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
+    /**
+     * @param  array{x: float, y: float, z: float}  $position
+     */
     public function __construct(
         public string $gameId,
         public string $playerId,
-        public float $x,
-        public float $y,
-        public float $z,
+        public array $position,
         public float $rotation,
     ) {
         //
@@ -39,11 +40,7 @@ class PlayerMoved implements ShouldBroadcastNow
     {
         return [
             'player_id' => $this->playerId,
-            'position' => [
-                'x' => $this->x,
-                'y' => $this->y,
-                'z' => $this->z,
-            ],
+            'position' => $this->position,
             'rotation' => $this->rotation,
         ];
     }

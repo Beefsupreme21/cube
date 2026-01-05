@@ -1,14 +1,17 @@
 import * as THREE from 'three';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
 // Remote player data store
 const remotePlayers = new Map();
 
 // Local player info
-let localPlayerId = null;
-let localPlayerName = null;
+let localPlayer = null;
 let gameId = null;
 let scene = null;
 let channel = null;
+let css2DRenderer = null;
+let localPlayerMesh = null;
+let localPlayerLabel = null;
 
 // Broadcast rate limiting (33ms = 30 updates/sec for smoother gameplay)
 const BROADCAST_INTERVAL = 33;
@@ -17,9 +20,34 @@ let lastPosition = { x: 0, y: 0, z: 0 };
 let lastRotation = 0;
 
 /**
+ * Create a name label that floats above a player
+ */
+function createNameLabel(name, isLocal = false) {
+    const labelDiv = document.createElement('div');
+    labelDiv.className = 'player-label';
+    labelDiv.textContent = name;
+    labelDiv.style.cssText = `
+        color: white;
+        font-family: 'Space Mono', monospace;
+        font-size: 14px;
+        font-weight: bold;
+        padding: 4px 8px;
+        background: ${isLocal ? 'rgba(233, 69, 96, 0.8)' : 'rgba(74, 144, 217, 0.8)'};
+        border-radius: 4px;
+        white-space: nowrap;
+        pointer-events: none;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    `;
+    
+    const label = new CSS2DObject(labelDiv);
+    label.position.set(0, 2.2, 0); // Above player's head
+    return label;
+}
+
+/**
  * Create a remote player mesh (blue color to distinguish from local player)
  */
-function createRemotePlayerMesh() {
+function createRemotePlayerMesh(player) {
     const character = new THREE.Group();
     
     // Body (blue for remote players)
@@ -73,25 +101,30 @@ function createRemotePlayerMesh() {
     nose.position.set(0, 1.45, 0.3);
     character.add(nose);
     
+    // Add name label
+    const label = createNameLabel(player.name, false);
+    character.add(label);
+    
     character.position.set(0, 1, 0);
-    return character;
+    return { mesh: character, label };
 }
 
 /**
  * Add a remote player to the scene
  */
-function addRemotePlayer(playerId, playerName, position = { x: 0, y: 0, z: 0 }, rotation = 0) {
-    if (playerId === localPlayerId) return; // Don't add ourselves
-    if (remotePlayers.has(playerId)) return; // Already exists
+function addRemotePlayer(player, position = { x: 0, y: 0, z: 0 }, rotation = 0) {
+    if (player.id === localPlayer.id) return; // Don't add ourselves
+    if (remotePlayers.has(player.id)) return; // Already exists
     
-    const mesh = createRemotePlayerMesh();
+    const { mesh, label } = createRemotePlayerMesh(player);
     mesh.position.set(position.x, 1, position.z);
     mesh.rotation.y = rotation;
     
     // Store player data with velocity for prediction
     const playerData = {
+        player,
         mesh,
-        name: playerName,
+        label,
         targetPosition: new THREE.Vector3(position.x, 0, position.z),
         targetRotation: rotation,
         velocity: new THREE.Vector3(0, 0, 0),
@@ -99,47 +132,47 @@ function addRemotePlayer(playerId, playerName, position = { x: 0, y: 0, z: 0 }, 
         previousPosition: new THREE.Vector3(position.x, 0, position.z),
     };
     
-    remotePlayers.set(playerId, playerData);
+    remotePlayers.set(player.id, playerData);
     scene.add(mesh);
     
-    console.log(`[Multiplayer] Player joined: ${playerName} (${playerId})`);
+    console.log(`[Multiplayer] Player joined: ${player.name} (${player.id})`);
 }
 
 /**
  * Update a remote player's position with velocity tracking
  */
 function updateRemotePlayer(playerId, position, rotation) {
-    if (playerId === localPlayerId) return;
+    if (playerId === localPlayer.id) return;
     
-    const player = remotePlayers.get(playerId);
-    if (!player) return;
+    const playerData = remotePlayers.get(playerId);
+    if (!playerData) return;
     
     const now = Date.now();
-    const timeDelta = (now - player.lastUpdateTime) / 1000;
+    const timeDelta = (now - playerData.lastUpdateTime) / 1000;
     
     // Calculate velocity from position change
     if (timeDelta > 0 && timeDelta < 1) {
-        player.velocity.set(
-            (position.x - player.targetPosition.x) / timeDelta,
+        playerData.velocity.set(
+            (position.x - playerData.targetPosition.x) / timeDelta,
             0,
-            (position.z - player.targetPosition.z) / timeDelta
+            (position.z - playerData.targetPosition.z) / timeDelta
         );
     }
     
-    player.previousPosition.copy(player.targetPosition);
-    player.targetPosition.set(position.x, 0, position.z);
-    player.targetRotation = rotation;
-    player.lastUpdateTime = now;
+    playerData.previousPosition.copy(playerData.targetPosition);
+    playerData.targetPosition.set(position.x, 0, position.z);
+    playerData.targetRotation = rotation;
+    playerData.lastUpdateTime = now;
 }
 
 /**
  * Remove a remote player from the scene
  */
 function removeRemotePlayer(playerId) {
-    const player = remotePlayers.get(playerId);
-    if (!player) return;
+    const playerData = remotePlayers.get(playerId);
+    if (!playerData) return;
     
-    scene.remove(player.mesh);
+    scene.remove(playerData.mesh);
     remotePlayers.delete(playerId);
     
     console.log(`[Multiplayer] Player left: ${playerId}`);
@@ -151,38 +184,47 @@ function removeRemotePlayer(playerId) {
 export function updateRemotePlayers(deltaTime) {
     const now = Date.now();
     
-    remotePlayers.forEach((player) => {
+    remotePlayers.forEach((playerData) => {
         // Time since last network update
-        const timeSinceUpdate = (now - player.lastUpdateTime) / 1000;
+        const timeSinceUpdate = (now - playerData.lastUpdateTime) / 1000;
         
         // Predicted position based on velocity (extrapolation)
-        const predictedX = player.targetPosition.x + player.velocity.x * Math.min(timeSinceUpdate, 0.1);
-        const predictedZ = player.targetPosition.z + player.velocity.z * Math.min(timeSinceUpdate, 0.1);
+        const predictedX = playerData.targetPosition.x + playerData.velocity.x * Math.min(timeSinceUpdate, 0.1);
+        const predictedZ = playerData.targetPosition.z + playerData.velocity.z * Math.min(timeSinceUpdate, 0.1);
         
         // Smooth interpolation toward predicted position
         const lerpFactor = Math.min(1, deltaTime * 15); // Faster lerp for responsiveness
         
-        player.mesh.position.x += (predictedX - player.mesh.position.x) * lerpFactor;
-        player.mesh.position.z += (predictedZ - player.mesh.position.z) * lerpFactor;
+        playerData.mesh.position.x += (predictedX - playerData.mesh.position.x) * lerpFactor;
+        playerData.mesh.position.z += (predictedZ - playerData.mesh.position.z) * lerpFactor;
         
         // Interpolate rotation (handle wrap-around)
-        let rotDiff = player.targetRotation - player.mesh.rotation.y;
+        let rotDiff = playerData.targetRotation - playerData.mesh.rotation.y;
         while (rotDiff > Math.PI) rotDiff -= 2 * Math.PI;
         while (rotDiff < -Math.PI) rotDiff += 2 * Math.PI;
-        player.mesh.rotation.y += rotDiff * lerpFactor;
+        playerData.mesh.rotation.y += rotDiff * lerpFactor;
         
         // Decay velocity over time if no updates
         if (timeSinceUpdate > 0.1) {
-            player.velocity.multiplyScalar(0.9);
+            playerData.velocity.multiplyScalar(0.9);
         }
     });
+}
+
+/**
+ * Update CSS2D labels (must be called each frame after main render)
+ */
+export function updateNameLabels(camera) {
+    if (css2DRenderer) {
+        css2DRenderer.render(scene, camera);
+    }
 }
 
 /**
  * Broadcast local player position via HTTP POST
  */
 export function broadcastPosition(playerState) {
-    if (!channel) return;
+    if (!channel || !localPlayer) return;
     
     const now = Date.now();
     if (now - lastBroadcastTime < BROADCAST_INTERVAL) return;
@@ -200,14 +242,16 @@ export function broadcastPosition(playerState) {
     lastPosition = { x: pos.x, y: pos.y, z: pos.z };
     lastRotation = rot;
     
-    // Send position update to server
+    // Send position update to server (include socket ID so we don't receive our own update)
     fetch('/game/move', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+            'X-Socket-ID': window.Echo?.socketId() || '',
         },
         body: JSON.stringify({
+            player_id: localPlayer.id,
             x: pos.x,
             y: pos.y,
             z: pos.z,
@@ -219,18 +263,34 @@ export function broadcastPosition(playerState) {
 /**
  * Initialize multiplayer connection using public channel
  */
-export function initMultiplayer(gameScene, config) {
+export function initMultiplayer(gameScene, config, playerMesh, camera, renderer) {
     scene = gameScene;
-    localPlayerId = config.playerId;
-    localPlayerName = config.playerName;
+    localPlayer = config.player;
     gameId = config.gameId;
+    localPlayerMesh = playerMesh;
     
     console.log(`[Multiplayer] ========================================`);
     console.log(`[Multiplayer] Initializing multiplayer`);
-    console.log(`[Multiplayer] Player ID: ${localPlayerId}`);
-    console.log(`[Multiplayer] Player Name: ${localPlayerName}`);
+    console.log(`[Multiplayer] Player:`, localPlayer);
     console.log(`[Multiplayer] Game ID: ${gameId}`);
     console.log(`[Multiplayer] ========================================`);
+    
+    // Setup CSS2D renderer for name labels
+    css2DRenderer = new CSS2DRenderer();
+    css2DRenderer.setSize(window.innerWidth, window.innerHeight);
+    css2DRenderer.domElement.style.position = 'absolute';
+    css2DRenderer.domElement.style.top = '0';
+    css2DRenderer.domElement.style.pointerEvents = 'none';
+    document.getElementById('game-container').appendChild(css2DRenderer.domElement);
+    
+    // Handle resize for CSS2D renderer
+    window.addEventListener('resize', () => {
+        css2DRenderer.setSize(window.innerWidth, window.innerHeight);
+    });
+    
+    // Add label to local player
+    localPlayerLabel = createNameLabel(localPlayer.name, true);
+    localPlayerMesh.add(localPlayerLabel);
     
     // Wait for Echo to be ready
     function setupEcho() {
@@ -248,7 +308,7 @@ export function initMultiplayer(gameScene, config) {
         // Listen for player joined events
         channel.listen('.player-joined', (data) => {
             console.log('[Multiplayer] 📥 Received player-joined:', data);
-            addRemotePlayer(data.player_id, data.player_name, data.position, data.rotation);
+            addRemotePlayer(data.player, data.position, data.rotation);
         });
         
         // Listen for player moved events
@@ -264,17 +324,17 @@ export function initMultiplayer(gameScene, config) {
         
         console.log('[Multiplayer] Event listeners attached, announcing presence...');
         
-        // Announce our presence
+        // Announce our presence (include socket ID so server can exclude us from broadcast)
         fetch('/game/join', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                'X-Socket-ID': window.Echo.socketId() || '',
             },
             body: JSON.stringify({
-                x: 0,
-                y: 0,
-                z: 0,
+                player: localPlayer,
+                position: { x: 0, y: 0, z: 0 },
                 rotation: 0,
             }),
         }).then(response => {
@@ -286,10 +346,10 @@ export function initMultiplayer(gameScene, config) {
               console.log('[Multiplayer] Existing players:', data.players?.length || 0);
               // Add existing players
               if (data.players) {
-                  data.players.forEach(player => {
-                      if (player.player_id !== localPlayerId) {
-                          console.log('[Multiplayer] Adding existing player:', player.player_id);
-                          addRemotePlayer(player.player_id, player.player_name, player.position, player.rotation);
+                  data.players.forEach(p => {
+                      if (p.player.id !== localPlayer.id) {
+                          console.log('[Multiplayer] Adding existing player:', p.player.name);
+                          addRemotePlayer(p.player, p.position, p.rotation);
                       }
                   });
               }
@@ -302,7 +362,7 @@ export function initMultiplayer(gameScene, config) {
     // Handle page unload
     window.addEventListener('beforeunload', () => {
         navigator.sendBeacon('/game/leave', JSON.stringify({
-            player_id: localPlayerId,
+            player_id: localPlayer.id,
         }));
     });
 }

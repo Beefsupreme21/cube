@@ -5,13 +5,34 @@ import { createPlayer, createPlayerState } from './player';
 import { setupControls, updatePlayerMovement } from './controls';
 import { setupCamera, updateCamera } from './camera';
 import { createWalkingAnimation } from './animations';
-import { initMultiplayer, updateRemotePlayers, broadcastPosition } from './multiplayer';
+import { initMultiplayer, updateRemotePlayers, broadcastPosition, updateNameLabels } from './multiplayer';
+
+let gameStarted = false;
 
 document.addEventListener('DOMContentLoaded', () => {
     const container = document.getElementById('game-container');
+    const joinScreen = document.getElementById('join-screen');
+    const joinBtn = document.getElementById('join-btn');
+    const nameInput = document.getElementById('player-name-input');
+    
     if (!container) return;
 
-    // Scene setup
+    // Don't pre-fill - let user choose their own name
+    
+    // Focus input
+    nameInput.focus();
+    
+    // Handle enter key on input
+    nameInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            startGame();
+        }
+    });
+    
+    // Handle join button click
+    joinBtn.addEventListener('click', startGame);
+    
+    // Scene setup (initialize but don't start game loop yet)
     const scene = createScene();
     setupLighting(scene);
     createGround(scene);
@@ -29,16 +50,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // Controls
     const keys = setupControls();
     
-    // Initialize multiplayer if config is available
-    if (window.gameConfig) {
-        initMultiplayer(scene, window.gameConfig);
-    }
-    
     // Animation loop
     const clock = new THREE.Clock();
     
     function animate() {
         requestAnimationFrame(animate);
+        
+        if (!gameStarted) {
+            renderer.render(scene, camera);
+            return;
+        }
         
         const deltaTime = clock.getDelta();
         
@@ -57,9 +78,27 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Multiplayer: update remote players and broadcast local position
         updateRemotePlayers(deltaTime);
+        updateNameLabels(camera);
         broadcastPosition(playerState);
         
         renderer.render(scene, camera);
+    }
+    
+    function startGame() {
+        // Update player name from input
+        const enteredName = nameInput.value.trim() || 'Player';
+        window.gameConfig.player.name = enteredName;
+        
+        // Hide join screen
+        joinScreen.classList.add('hidden');
+        
+        // Start game
+        gameStarted = true;
+        
+        // Initialize multiplayer
+        if (window.gameConfig) {
+            initMultiplayer(scene, window.gameConfig, player, camera, renderer);
+        }
     }
     
     // Handle resize
