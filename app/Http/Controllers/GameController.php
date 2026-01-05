@@ -99,6 +99,7 @@ class GameController extends Controller
             'y' => ['required', 'numeric'],
             'z' => ['required', 'numeric'],
             'rotation' => ['required', 'numeric'],
+            'animation' => ['sometimes', 'string'],
         ]);
 
         $playerId = $validated['player_id'];
@@ -108,12 +109,14 @@ class GameController extends Controller
             'z' => $validated['z'],
         ];
         $rotation = $validated['rotation'];
+        $animation = $validated['animation'] ?? 'idle';
 
         // Update player position in cache
         $players = Cache::get(self::CACHE_KEY, []);
         if (isset($players[$playerId])) {
             $players[$playerId]['position'] = $position;
             $players[$playerId]['rotation'] = $rotation;
+            $players[$playerId]['animation'] = $animation;
             $players[$playerId]['last_seen'] = now()->timestamp;
             Cache::put(self::CACHE_KEY, $players, self::CACHE_TTL);
         }
@@ -124,6 +127,7 @@ class GameController extends Controller
             playerId: $playerId,
             position: $position,
             rotation: $rotation,
+            animation: $animation,
         ))->toOthers();
 
         return response()->json(['success' => true]);
@@ -174,8 +178,11 @@ class GameController extends Controller
         }
 
         if (! $playerName) {
-            // Don't set a default - user will enter their name on join screen
-            $playerName = '';
+            // Generate a numbered player name based on active player count
+            $players = Cache::get(self::CACHE_KEY, []);
+            $playerNumber = count($players) + 1;
+            $playerName = 'Player '.$playerNumber;
+            $request->session()->put('player_name', $playerName);
         }
 
         return [

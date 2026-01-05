@@ -4,8 +4,8 @@ import { createScene, setupLighting, createGround } from './scene';
 import { createPlayer, createPlayerState } from './player';
 import { setupControls, updatePlayerMovement } from './controls';
 import { setupCamera, updateCamera } from './camera';
-import { createWalkingAnimation } from './animations';
-import { initMultiplayer, updateRemotePlayers, broadcastPosition, updateNameLabels } from './multiplayer';
+import { AnimationController } from './animations';
+import { initMultiplayer, updateRemotePlayers, broadcastPosition, updateNameLabels, setAnimation } from './multiplayer';
 
 let gameStarted = false;
 
@@ -17,7 +17,10 @@ document.addEventListener('DOMContentLoaded', () => {
     
     if (!container) return;
 
-    // Don't pre-fill - let user choose their own name
+    // Pre-fill name input with default from server
+    if (window.gameConfig?.player?.name) {
+        nameInput.value = window.gameConfig.player.name;
+    }
     
     // Focus input
     nameInput.focus();
@@ -47,6 +50,9 @@ document.addEventListener('DOMContentLoaded', () => {
     scene.add(player);
     const playerState = createPlayerState();
     
+    // Animation controller
+    const animator = new AnimationController(player);
+    
     // Controls
     const keys = setupControls();
     
@@ -64,14 +70,28 @@ document.addEventListener('DOMContentLoaded', () => {
         const deltaTime = clock.getDelta();
         
         // Update movement
-        const { isMoving } = updatePlayerMovement(keys, playerState, deltaTime);
+        const { isMoving, isJumping, justJumped } = updatePlayerMovement(keys, playerState, deltaTime);
         
         // Update player mesh
         player.position.copy(playerState.position);
         player.rotation.y = playerState.rotation;
         
-        // Apply walking animation
-        createWalkingAnimation(player, isMoving);
+        // Update animation based on state
+        if (justJumped) {
+            // Start jump animation (one-shot)
+            animator.play('jump', { duration: 0.6 });
+            setAnimation('jump');
+        } else if (!isJumping) {
+            // Only change to walk/idle if not jumping
+            if (isMoving) {
+                animator.play('walk');
+                setAnimation('walk');
+            } else {
+                animator.play('idle');
+                setAnimation('idle');
+            }
+        }
+        animator.update(deltaTime);
         
         // Update camera
         updateCamera(camera, playerState, player);

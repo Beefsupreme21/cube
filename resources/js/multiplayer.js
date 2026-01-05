@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+import { AnimationController } from './animations';
 
 // Remote player data store
 const remotePlayers = new Map();
@@ -18,6 +19,7 @@ const BROADCAST_INTERVAL = 33;
 let lastBroadcastTime = 0;
 let lastPosition = { x: 0, y: 0, z: 0 };
 let lastRotation = 0;
+let currentAnimation = 'idle';
 
 /**
  * Create a name label that floats above a player
@@ -54,6 +56,7 @@ function createRemotePlayerMesh(player) {
     const bodyGeometry = new THREE.BoxGeometry(0.6, 1.2, 0.4);
     const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x4a90d9 });
     const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    body.name = 'body';
     body.position.y = 0.6;
     body.castShadow = true;
     character.add(body);
@@ -62,6 +65,7 @@ function createRemotePlayerMesh(player) {
     const headGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
     const headMaterial = new THREE.MeshStandardMaterial({ color: 0xffdbac });
     const head = new THREE.Mesh(headGeometry, headMaterial);
+    head.name = 'head';
     head.position.y = 1.45;
     head.castShadow = true;
     character.add(head);
@@ -70,12 +74,14 @@ function createRemotePlayerMesh(player) {
     const armGeometry = new THREE.BoxGeometry(0.2, 0.8, 0.2);
     const armMaterial = new THREE.MeshStandardMaterial({ color: 0x4a90d9 });
     const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+    leftArm.name = 'leftArm';
     leftArm.position.set(-0.5, 0.6, 0);
     leftArm.castShadow = true;
     character.add(leftArm);
     
     // Right arm
     const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+    rightArm.name = 'rightArm';
     rightArm.position.set(0.5, 0.6, 0);
     rightArm.castShadow = true;
     character.add(rightArm);
@@ -84,12 +90,14 @@ function createRemotePlayerMesh(player) {
     const legGeometry = new THREE.BoxGeometry(0.25, 0.8, 0.25);
     const legMaterial = new THREE.MeshStandardMaterial({ color: 0x4a5568 });
     const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+    leftLeg.name = 'leftLeg';
     leftLeg.position.set(-0.2, -0.4, 0);
     leftLeg.castShadow = true;
     character.add(leftLeg);
     
     // Right leg
     const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
+    rightLeg.name = 'rightLeg';
     rightLeg.position.set(0.2, -0.4, 0);
     rightLeg.castShadow = true;
     character.add(rightLeg);
@@ -98,6 +106,7 @@ function createRemotePlayerMesh(player) {
     const noseGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.15);
     const noseMaterial = new THREE.MeshStandardMaterial({ color: 0x4a90d9 });
     const nose = new THREE.Mesh(noseGeometry, noseMaterial);
+    nose.name = 'nose';
     nose.position.set(0, 1.45, 0.3);
     character.add(nose);
     
@@ -120,11 +129,15 @@ function addRemotePlayer(player, position = { x: 0, y: 0, z: 0 }, rotation = 0) 
     mesh.position.set(position.x, 1, position.z);
     mesh.rotation.y = rotation;
     
+    // Create animation controller for this remote player
+    const animator = new AnimationController(mesh);
+    
     // Store player data with velocity for prediction
     const playerData = {
         player,
         mesh,
         label,
+        animator,
         targetPosition: new THREE.Vector3(position.x, 0, position.z),
         targetRotation: rotation,
         velocity: new THREE.Vector3(0, 0, 0),
@@ -141,7 +154,7 @@ function addRemotePlayer(player, position = { x: 0, y: 0, z: 0 }, rotation = 0) 
 /**
  * Update a remote player's position with velocity tracking
  */
-function updateRemotePlayer(playerId, position, rotation) {
+function updateRemotePlayer(playerId, position, rotation, animation = null) {
     if (playerId === localPlayer.id) return;
     
     const playerData = remotePlayers.get(playerId);
@@ -160,9 +173,14 @@ function updateRemotePlayer(playerId, position, rotation) {
     }
     
     playerData.previousPosition.copy(playerData.targetPosition);
-    playerData.targetPosition.set(position.x, 0, position.z);
+    playerData.targetPosition.set(position.x, position.y, position.z);
     playerData.targetRotation = rotation;
     playerData.lastUpdateTime = now;
+    
+    // Store received animation
+    if (animation) {
+        playerData.receivedAnimation = animation;
+    }
 }
 
 /**
@@ -196,6 +214,7 @@ export function updateRemotePlayers(deltaTime) {
         const lerpFactor = Math.min(1, deltaTime * 15); // Faster lerp for responsiveness
         
         playerData.mesh.position.x += (predictedX - playerData.mesh.position.x) * lerpFactor;
+        playerData.mesh.position.y += (playerData.targetPosition.y - playerData.mesh.position.y) * lerpFactor;
         playerData.mesh.position.z += (predictedZ - playerData.mesh.position.z) * lerpFactor;
         
         // Interpolate rotation (handle wrap-around)
@@ -208,6 +227,17 @@ export function updateRemotePlayers(deltaTime) {
         if (timeSinceUpdate > 0.1) {
             playerData.velocity.multiplyScalar(0.9);
         }
+        
+        // Update animation - use received animation from network
+        if (playerData.receivedAnimation) {
+            // For one-shot animations like jump, use duration
+            if (playerData.receivedAnimation === 'jump' && !playerData.animator.isPlaying('jump')) {
+                playerData.animator.play('jump', { duration: 0.6 });
+            } else if (playerData.receivedAnimation !== 'jump') {
+                playerData.animator.play(playerData.receivedAnimation);
+            }
+        }
+        playerData.animator.update(deltaTime);
     });
 }
 
@@ -218,6 +248,13 @@ export function updateNameLabels(camera) {
     if (css2DRenderer) {
         css2DRenderer.render(scene, camera);
     }
+}
+
+/**
+ * Set the current animation to broadcast
+ */
+export function setAnimation(animationName) {
+    currentAnimation = animationName;
 }
 
 /**
@@ -233,7 +270,7 @@ export function broadcastPosition(playerState) {
     const rot = playerState.rotation;
     
     // Only broadcast if position/rotation changed significantly
-    const posDelta = Math.abs(pos.x - lastPosition.x) + Math.abs(pos.z - lastPosition.z);
+    const posDelta = Math.abs(pos.x - lastPosition.x) + Math.abs(pos.z - lastPosition.z) + Math.abs(pos.y - lastPosition.y);
     const rotDelta = Math.abs(rot - lastRotation);
     
     if (posDelta < 0.01 && rotDelta < 0.01) return;
@@ -256,6 +293,7 @@ export function broadcastPosition(playerState) {
             y: pos.y,
             z: pos.z,
             rotation: rot,
+            animation: currentAnimation,
         }),
     }).catch(err => console.warn('[Multiplayer] Failed to broadcast position:', err));
 }
@@ -313,7 +351,7 @@ export function initMultiplayer(gameScene, config, playerMesh, camera, renderer)
         
         // Listen for player moved events
         channel.listen('.player-moved', (data) => {
-            updateRemotePlayer(data.player_id, data.position, data.rotation);
+            updateRemotePlayer(data.player_id, data.position, data.rotation, data.animation);
         });
         
         // Listen for player left events
