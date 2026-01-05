@@ -1,7 +1,7 @@
 import './bootstrap';
 import * as THREE from 'three';
 import { createScene, setupLighting, createGround } from './scene';
-import { createPlayer, createPlayerState } from './player';
+import { createCharacterMesh, createPlayerState, updatePlayerColor, updatePlayerClass } from './player';
 import { setupControls, updatePlayerMovement } from './controls';
 import { setupCamera, updateCamera } from './camera';
 import { AnimationController } from './animations';
@@ -14,6 +14,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const joinScreen = document.getElementById('join-screen');
     const joinBtn = document.getElementById('join-btn');
     const nameInput = document.getElementById('player-name-input');
+    const colorPicker = document.getElementById('color-picker');
+    const classPicker = document.getElementById('class-picker');
     
     if (!container) return;
 
@@ -21,6 +23,30 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.gameConfig?.player?.name) {
         nameInput.value = window.gameConfig.player.name;
     }
+    
+    // Handle color selection (use saved color from server)
+    let selectedColor = window.gameConfig?.player?.color || '#e94560';
+    colorPicker.addEventListener('click', (e) => {
+        const colorOption = e.target.closest('.color-option');
+        if (!colorOption) return;
+        
+        // Update selected state
+        colorPicker.querySelectorAll('.color-option').forEach(opt => opt.classList.remove('selected'));
+        colorOption.classList.add('selected');
+        selectedColor = colorOption.dataset.color;
+    });
+    
+    // Handle class selection (use saved class from server)
+    let selectedClass = window.gameConfig?.player?.class || 'warrior';
+    classPicker.addEventListener('click', (e) => {
+        const classOption = e.target.closest('.class-option');
+        if (!classOption) return;
+        
+        // Update selected state
+        classPicker.querySelectorAll('.class-option').forEach(opt => opt.classList.remove('selected'));
+        classOption.classList.add('selected');
+        selectedClass = classOption.dataset.class;
+    });
     
     // Focus input
     nameInput.focus();
@@ -45,8 +71,10 @@ document.addEventListener('DOMContentLoaded', () => {
     renderer.setSize(container.clientWidth, container.clientHeight);
     container.appendChild(renderer.domElement);
     
-    // Player
-    const player = createPlayer();
+    // Player (create with server-provided color and class)
+    const initialColor = window.gameConfig?.player?.color || '#e94560';
+    const initialClass = window.gameConfig?.player?.class || 'warrior';
+    const player = createCharacterMesh(initialColor, initialClass);
     scene.add(player);
     const playerState = createPlayerState();
     
@@ -105,9 +133,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     function startGame() {
-        // Update player name from input
+        // Update player name, color, and class from input
         const enteredName = nameInput.value.trim() || 'Player';
         window.gameConfig.player.name = enteredName;
+        window.gameConfig.player.color = selectedColor;
+        window.gameConfig.player.class = selectedClass;
+        
+        // Update local player mesh appearance
+        updatePlayerColor(player, selectedColor);
+        updatePlayerClass(player, selectedClass);
         
         // Hide join screen
         joinScreen.classList.add('hidden');

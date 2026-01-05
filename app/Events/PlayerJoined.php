@@ -13,7 +13,7 @@ class PlayerJoined implements ShouldBroadcastNow
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     /**
-     * @param  array{id: string, name: string, color?: string}  $player
+     * @param  array{id: int, name: string, color: string}  $player
      * @param  array{x: float, y: float, z: float}  $position
      */
     public function __construct(

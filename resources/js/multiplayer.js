@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { AnimationController } from './animations';
+import { createCharacterMesh } from './player';
 
 // Remote player data store
 const remotePlayers = new Map();
@@ -47,74 +48,16 @@ function createNameLabel(name, isLocal = false) {
 }
 
 /**
- * Create a remote player mesh (blue color to distinguish from local player)
+ * Create a remote player mesh with their chosen color and class
  */
 function createRemotePlayerMesh(player) {
-    const character = new THREE.Group();
-    
-    // Body (blue for remote players)
-    const bodyGeometry = new THREE.BoxGeometry(0.6, 1.2, 0.4);
-    const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x4a90d9 });
-    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-    body.name = 'body';
-    body.position.y = 0.6;
-    body.castShadow = true;
-    character.add(body);
-    
-    // Head
-    const headGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-    const headMaterial = new THREE.MeshStandardMaterial({ color: 0xffdbac });
-    const head = new THREE.Mesh(headGeometry, headMaterial);
-    head.name = 'head';
-    head.position.y = 1.45;
-    head.castShadow = true;
-    character.add(head);
-    
-    // Left arm
-    const armGeometry = new THREE.BoxGeometry(0.2, 0.8, 0.2);
-    const armMaterial = new THREE.MeshStandardMaterial({ color: 0x4a90d9 });
-    const leftArm = new THREE.Mesh(armGeometry, armMaterial);
-    leftArm.name = 'leftArm';
-    leftArm.position.set(-0.5, 0.6, 0);
-    leftArm.castShadow = true;
-    character.add(leftArm);
-    
-    // Right arm
-    const rightArm = new THREE.Mesh(armGeometry, armMaterial);
-    rightArm.name = 'rightArm';
-    rightArm.position.set(0.5, 0.6, 0);
-    rightArm.castShadow = true;
-    character.add(rightArm);
-    
-    // Left leg
-    const legGeometry = new THREE.BoxGeometry(0.25, 0.8, 0.25);
-    const legMaterial = new THREE.MeshStandardMaterial({ color: 0x4a5568 });
-    const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
-    leftLeg.name = 'leftLeg';
-    leftLeg.position.set(-0.2, -0.4, 0);
-    leftLeg.castShadow = true;
-    character.add(leftLeg);
-    
-    // Right leg
-    const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
-    rightLeg.name = 'rightLeg';
-    rightLeg.position.set(0.2, -0.4, 0);
-    rightLeg.castShadow = true;
-    character.add(rightLeg);
-    
-    // Nose/face indicator (blue)
-    const noseGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.15);
-    const noseMaterial = new THREE.MeshStandardMaterial({ color: 0x4a90d9 });
-    const nose = new THREE.Mesh(noseGeometry, noseMaterial);
-    nose.name = 'nose';
-    nose.position.set(0, 1.45, 0.3);
-    character.add(nose);
+    // Use shared character mesh creation with player's color and class
+    const character = createCharacterMesh(player.color || '#4a90d9', player.class || 'warrior');
     
     // Add name label
     const label = createNameLabel(player.name, false);
     character.add(label);
     
-    character.position.set(0, 1, 0);
     return { mesh: character, label };
 }
 

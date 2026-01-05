@@ -17,7 +17,7 @@ class PlayerMoved implements ShouldBroadcastNow
      */
     public function __construct(
         public string $gameId,
-        public string $playerId,
+        public int $playerId,
         public array $position,
         public float $rotation,
         public string $animation = 'idle',

@@ -2,33 +2,31 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\PlayerClass;
 use App\Events\PlayerJoined;
 use App\Events\PlayerLeft;
 use App\Events\PlayerMoved;
+use App\Models\Game;
+use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class GameController extends Controller
 {
-    // Single game ID for now (can be extended to support multiple lobbies later)
-    private const GAME_ID = 'main';
-
-    private const CACHE_KEY = 'game:main:players';
-
-    private const CACHE_TTL = 3600; // 1 hour
+    private const DEFAULT_GAME_CODE = 'main';
 
     /**
      * Show the game view
      */
     public function show(Request $request): \Illuminate\Contracts\View\View
     {
-        $player = $this->getOrCreatePlayer($request);
+        $user = $this->getOrCreateUser($request);
+        $game = $this->getOrCreateGame();
 
         return view('game', [
-            'playerId' => $player['id'],
-            'playerName' => $player['name'],
-            'gameId' => self::GAME_ID,
+            'user' => $user,
+            'gameId' => $game->code,
         ]);
     }
 
@@ -39,9 +37,10 @@ class GameController extends Controller
     {
         $validated = $request->validate([
             'player' => ['required', 'array'],
-            'player.id' => ['required', 'string'],
+            'player.id' => ['required', 'integer'],
             'player.name' => ['required', 'string', 'max:16'],
-            'player.color' => ['sometimes', 'string'],
+            'player.color' => ['sometimes', 'string', 'max:7'],
+            'player.class' => ['sometimes', 'string', Rule::enum(PlayerClass::class)],
             'position' => ['required', 'array'],
             'position.x' => ['required', 'numeric'],
             'position.y' => ['required', 'numeric'],
@@ -49,41 +48,74 @@ class GameController extends Controller
             'rotation' => ['required', 'numeric'],
         ]);
 
-        $player = $validated['player'];
+        $playerData = $validated['player'];
         $position = $validated['position'];
         $rotation = $validated['rotation'];
 
-        // Update session with player info
-        $request->session()->put('player_id', $player['id']);
-        $request->session()->put('player_name', $player['name']);
+        // Find and update user
+        $user = User::findOrFail($playerData['id']);
+        $user->update([
+            'name' => $playerData['name'],
+            'color' => $playerData['color'] ?? $user->color,
+            'class' => $playerData['class'] ?? $user->class?->value ?? 'warrior',
+        ]);
 
-        // Store player in cache
-        $players = Cache::get(self::CACHE_KEY, []);
-        $players[$player['id']] = [
-            'player' => $player,
-            'position' => $position,
-            'rotation' => $rotation,
-            'last_seen' => now()->timestamp,
-        ];
-        Cache::put(self::CACHE_KEY, $players, self::CACHE_TTL);
+        // Get or create game
+        $game = $this->getOrCreateGame();
 
-        // Broadcast player joined to all other players (exclude sender)
+        // Attach user to game (or update if already attached)
+        $game->players()->syncWithoutDetaching([
+            $user->id => [
+                'position_x' => $position['x'],
+                'position_y' => $position['y'],
+                'position_z' => $position['z'],
+                'rotation' => $rotation,
+                'last_seen_at' => now(),
+            ],
+        ]);
+
+        // Broadcast player joined to all other players
         broadcast(new PlayerJoined(
-            gameId: self::GAME_ID,
-            player: $player,
+            gameId: $game->code,
+            player: [
+                'id' => $user->id,
+                'name' => $user->name,
+                'color' => $user->color,
+                'class' => $user->class?->value ?? 'warrior',
+            ],
             position: $position,
             rotation: $rotation,
         ))->toOthers();
 
-        // Return list of existing players (excluding self)
-        $otherPlayers = collect($players)
-            ->filter(fn ($p) => isset($p['player']['id']) && $p['player']['id'] !== $player['id'])
+        // Return list of other active players
+        $otherPlayers = $game->activePlayers()
+            ->where('users.id', '!=', $user->id)
+            ->get()
+            ->map(fn (User $player) => [
+                'player' => [
+                    'id' => $player->id,
+                    'name' => $player->name,
+                    'color' => $player->color,
+                    'class' => $player->class?->value ?? 'warrior',
+                ],
+                'position' => [
+                    'x' => $player->pivot->position_x,
+                    'y' => $player->pivot->position_y,
+                    'z' => $player->pivot->position_z,
+                ],
+                'rotation' => $player->pivot->rotation,
+            ])
             ->values()
             ->all();
 
         return response()->json([
             'success' => true,
-            'player' => $player,
+            'player' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'color' => $user->color,
+                'class' => $user->class?->value ?? 'warrior',
+            ],
             'players' => $otherPlayers,
         ]);
     }
@@ -94,7 +126,7 @@ class GameController extends Controller
     public function move(Request $request): \Illuminate\Http\JsonResponse
     {
         $validated = $request->validate([
-            'player_id' => ['required', 'string'],
+            'player_id' => ['required', 'integer'],
             'x' => ['required', 'numeric'],
             'y' => ['required', 'numeric'],
             'z' => ['required', 'numeric'],
@@ -111,19 +143,19 @@ class GameController extends Controller
         $rotation = $validated['rotation'];
         $animation = $validated['animation'] ?? 'idle';
 
-        // Update player position in cache
-        $players = Cache::get(self::CACHE_KEY, []);
-        if (isset($players[$playerId])) {
-            $players[$playerId]['position'] = $position;
-            $players[$playerId]['rotation'] = $rotation;
-            $players[$playerId]['animation'] = $animation;
-            $players[$playerId]['last_seen'] = now()->timestamp;
-            Cache::put(self::CACHE_KEY, $players, self::CACHE_TTL);
-        }
+        // Update player position in database
+        $game = $this->getOrCreateGame();
+        $game->players()->updateExistingPivot($playerId, [
+            'position_x' => $position['x'],
+            'position_y' => $position['y'],
+            'position_z' => $position['z'],
+            'rotation' => $rotation,
+            'last_seen_at' => now(),
+        ]);
 
-        // Broadcast movement to all other players (exclude sender)
+        // Broadcast movement to all other players
         broadcast(new PlayerMoved(
-            gameId: self::GAME_ID,
+            gameId: $game->code,
             playerId: $playerId,
             position: $position,
             rotation: $rotation,
@@ -138,57 +170,67 @@ class GameController extends Controller
      */
     public function leave(Request $request): \Illuminate\Http\JsonResponse
     {
-        $playerId = $request->session()->get('player_id');
+        $userId = $request->session()->get('user_id');
 
-        if (! $playerId) {
+        if (! $userId) {
             // Try to get from request body (for sendBeacon)
             $data = json_decode($request->getContent(), true);
-            $playerId = $data['player_id'] ?? null;
+            $userId = $data['player_id'] ?? null;
         }
 
-        if ($playerId) {
-            // Remove from cache
-            $players = Cache::get(self::CACHE_KEY, []);
-            unset($players[$playerId]);
-            Cache::put(self::CACHE_KEY, $players, self::CACHE_TTL);
+        if ($userId) {
+            $game = Game::where('code', self::DEFAULT_GAME_CODE)->first();
 
-            // Broadcast player left
-            broadcast(new PlayerLeft(
-                gameId: self::GAME_ID,
-                playerId: $playerId,
-            ));
+            if ($game) {
+                // Detach user from game
+                $game->players()->detach($userId);
+
+                // Broadcast player left
+                broadcast(new PlayerLeft(
+                    gameId: $game->code,
+                    playerId: $userId,
+                ));
+            }
         }
 
         return response()->json(['success' => true]);
     }
 
     /**
-     * Get or create a player from session
-     *
-     * @return array{id: string, name: string, color: string}
+     * Get or create a guest user from session
      */
-    private function getOrCreatePlayer(Request $request): array
+    private function getOrCreateUser(Request $request): User
     {
-        $playerId = $request->session()->get('player_id');
-        $playerName = $request->session()->get('player_name');
+        $userId = $request->session()->get('user_id');
 
-        if (! $playerId) {
-            $playerId = Str::uuid()->toString();
-            $request->session()->put('player_id', $playerId);
+        if ($userId) {
+            $user = User::find($userId);
+            if ($user) {
+                return $user;
+            }
         }
 
-        if (! $playerName) {
-            // Generate a numbered player name based on active player count
-            $players = Cache::get(self::CACHE_KEY, []);
-            $playerNumber = count($players) + 1;
-            $playerName = 'Player '.$playerNumber;
-            $request->session()->put('player_name', $playerName);
-        }
-
-        return [
-            'id' => $playerId,
-            'name' => $playerName,
+        // Create a new guest user
+        $user = User::create([
+            'name' => 'Player',
+            'email' => 'guest_'.Str::uuid().'@game.local',
+            'password' => Str::random(32),
             'color' => '#e94560',
-        ];
+        ]);
+
+        $request->session()->put('user_id', $user->id);
+
+        return $user;
+    }
+
+    /**
+     * Get or create the default game
+     */
+    private function getOrCreateGame(): Game
+    {
+        return Game::firstOrCreate(
+            ['code' => self::DEFAULT_GAME_CODE],
+            ['status' => 'active']
+        );
     }
 }

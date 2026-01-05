@@ -14,7 +14,7 @@ class PlayerLeft implements ShouldBroadcastNow
 
     public function __construct(
         public string $gameId,
-        public string $playerId,
+        public int $playerId,
     ) {
         //
     }

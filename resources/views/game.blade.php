@@ -33,7 +33,7 @@
                 border-radius: 16px;
                 padding: 48px;
                 text-align: center;
-                max-width: 400px;
+                max-width: 500px;
                 width: 90%;
             }
             
@@ -73,6 +73,86 @@
             
             .name-input::placeholder {
                 color: rgba(255, 255, 255, 0.3);
+            }
+            
+            .picker-label {
+                display: block;
+                color: rgba(255, 255, 255, 0.6);
+                font-size: 0.875rem;
+                margin-top: 24px;
+                margin-bottom: 12px;
+            }
+            
+            .color-picker {
+                display: flex;
+                justify-content: center;
+                gap: 12px;
+                flex-wrap: wrap;
+            }
+            
+            .color-option {
+                width: 40px;
+                height: 40px;
+                border-radius: 50%;
+                border: 3px solid transparent;
+                cursor: pointer;
+                transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+            }
+            
+            .color-option:hover {
+                transform: scale(1.1);
+            }
+            
+            .color-option.selected {
+                border-color: #fff;
+                box-shadow: 0 0 20px currentColor;
+                transform: scale(1.15);
+            }
+            
+            .class-picker {
+                display: flex;
+                justify-content: center;
+                gap: 16px;
+                flex-wrap: wrap;
+            }
+            
+            .class-option {
+                background: rgba(0, 0, 0, 0.3);
+                border: 2px solid rgba(255, 255, 255, 0.2);
+                border-radius: 12px;
+                padding: 16px 20px;
+                cursor: pointer;
+                transition: all 0.2s;
+                text-align: center;
+                min-width: 120px;
+            }
+            
+            .class-option:hover {
+                border-color: rgba(255, 255, 255, 0.4);
+                background: rgba(255, 255, 255, 0.1);
+            }
+            
+            .class-option.selected {
+                border-color: #e94560;
+                background: rgba(233, 69, 96, 0.2);
+                box-shadow: 0 0 20px rgba(233, 69, 96, 0.3);
+            }
+            
+            .class-icon {
+                font-size: 2rem;
+                margin-bottom: 8px;
+            }
+            
+            .class-name {
+                color: #fff;
+                font-weight: 700;
+                font-size: 0.875rem;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+            }
+            
+            .class-option.selected .class-name {
+                color: #e94560;
             }
             
             .join-btn {
@@ -122,6 +202,33 @@
                     autocomplete="off"
                 >
                 
+                <label class="picker-label">Choose your class</label>
+                <div class="class-picker" id="class-picker">
+                    @php $currentClass = $user->class?->value ?? 'warrior'; @endphp
+                    <button type="button" class="class-option {{ $currentClass === 'warrior' ? 'selected' : '' }}" data-class="warrior">
+                        <div class="class-icon">⚔️</div>
+                        <div class="class-name">Warrior</div>
+                    </button>
+                    <button type="button" class="class-option {{ $currentClass === 'hunter' ? 'selected' : '' }}" data-class="hunter">
+                        <div class="class-icon">🏹</div>
+                        <div class="class-name">Hunter</div>
+                    </button>
+                    <button type="button" class="class-option {{ $currentClass === 'mage' ? 'selected' : '' }}" data-class="mage">
+                        <div class="class-icon">🔮</div>
+                        <div class="class-name">Mage</div>
+                    </button>
+                </div>
+                
+                <label class="picker-label">Choose your color</label>
+                <div class="color-picker" id="color-picker">
+                    @php
+                        $colors = ['#e94560', '#4a90d9', '#50c878', '#ffd700', '#ff6b35', '#9b59b6', '#00d4aa', '#ff69b4'];
+                    @endphp
+                    @foreach($colors as $color)
+                        <button type="button" class="color-option {{ $user->color === $color ? 'selected' : '' }}" data-color="{{ $color }}" style="background: {{ $color }};"></button>
+                    @endforeach
+                </div>
+                
                 <button id="join-btn" class="join-btn">Join Game</button>
             </div>
         </div>
@@ -133,9 +240,10 @@
             // Pass server data to JavaScript
             window.gameConfig = {
                 player: {
-                    id: @json($playerId),
-                    name: @json($playerName),
-                    color: '#e94560',
+                    id: @json($user->id),
+                    name: @json($user->name),
+                    color: @json($user->color),
+                    class: @json($user->class?->value ?? 'warrior'),
                 },
                 gameId: @json($gameId),
             };
