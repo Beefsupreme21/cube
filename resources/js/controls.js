@@ -1,7 +1,8 @@
+import { getGroundHeight } from './scene';
+
 // Physics constants
 const GRAVITY = 20;
 const JUMP_FORCE = 8;
-const GROUND_Y = 1; // Character's base Y position when on ground
 
 export function setupControls() {
     const keys = {};
@@ -30,6 +31,12 @@ export function updatePlayerMovement(keys, playerState, deltaTime) {
         playerState.isGrounded = true;
     }
     
+    // Check for sprint (shift key)
+    const isSprinting = keys['shift'] || keys['shiftleft'] || keys['shiftright'];
+    // Check for crouch (ctrl key)
+    const isCrouching = keys['control'] || keys['ctrl'] || keys['controlleft'] || keys['controlright'];
+    const currentMoveSpeed = isSprinting ? (playerState.moveSpeed * 1.8) : (isCrouching ? (playerState.moveSpeed * 0.6) : playerState.moveSpeed);
+    
     // Rotation
     if (keys['a'] || keys['arrowleft']) {
         playerState.rotation += playerState.rotationSpeed * deltaTime;
@@ -39,7 +46,7 @@ export function updatePlayerMovement(keys, playerState, deltaTime) {
     }
     
     // Horizontal movement in facing direction
-    const moveDistance = playerState.moveSpeed * deltaTime;
+    const moveDistance = currentMoveSpeed * deltaTime;
     let moveX = 0;
     let moveZ = 0;
     
@@ -68,19 +75,23 @@ export function updatePlayerMovement(keys, playerState, deltaTime) {
         justJumped = true;
     }
     
+    // Get ground height at current position
+    const groundHeight = getGroundHeight(playerState.position.x, playerState.position.z);
+    
     // Apply gravity
     if (!playerState.isGrounded) {
         playerState.velocity.y -= GRAVITY * deltaTime;
         playerState.position.y += playerState.velocity.y * deltaTime;
         
-        // Check if landed
-        if (playerState.position.y <= GROUND_Y) {
-            playerState.position.y = GROUND_Y;
+        // Check if landed (with small threshold to prevent bouncing)
+        if (playerState.position.y <= groundHeight + 0.1) {
+            playerState.position.y = groundHeight;
             playerState.velocity.y = 0;
             playerState.isGrounded = true;
         }
     } else {
-        playerState.position.y = GROUND_Y;
+        // Keep player on ground (follow terrain)
+        playerState.position.y = groundHeight;
     }
     
     // Keep within bounds
@@ -92,5 +103,5 @@ export function updatePlayerMovement(keys, playerState, deltaTime) {
     const isMoving = (keys['w'] || keys['arrowup'] || keys['s'] || keys['arrowdown']);
     const isJumping = !playerState.isGrounded;
     
-    return { moveX, moveZ, isMoving, isJumping, justJumped };
+    return { moveX, moveZ, isMoving, isJumping, justJumped, isSprinting, isCrouching };
 }

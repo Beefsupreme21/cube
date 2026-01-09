@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\PlayerClass;
 use App\Events\PlayerJoined;
 use App\Events\PlayerLeft;
 use App\Events\PlayerMoved;
@@ -10,7 +9,6 @@ use App\Models\Game;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 
 class GameController extends Controller
 {
@@ -40,7 +38,6 @@ class GameController extends Controller
             'player.id' => ['required', 'integer'],
             'player.name' => ['required', 'string', 'max:16'],
             'player.color' => ['sometimes', 'string', 'max:7'],
-            'player.class' => ['sometimes', 'string', Rule::enum(PlayerClass::class)],
             'position' => ['required', 'array'],
             'position.x' => ['required', 'numeric'],
             'position.y' => ['required', 'numeric'],
@@ -57,7 +54,6 @@ class GameController extends Controller
         $user->update([
             'name' => $playerData['name'],
             'color' => $playerData['color'] ?? $user->color,
-            'class' => $playerData['class'] ?? $user->class?->value ?? 'warrior',
         ]);
 
         // Get or create game
@@ -81,7 +77,6 @@ class GameController extends Controller
                 'id' => $user->id,
                 'name' => $user->name,
                 'color' => $user->color,
-                'class' => $user->class?->value ?? 'warrior',
             ],
             position: $position,
             rotation: $rotation,
@@ -96,7 +91,6 @@ class GameController extends Controller
                     'id' => $player->id,
                     'name' => $player->name,
                     'color' => $player->color,
-                    'class' => $player->class?->value ?? 'warrior',
                 ],
                 'position' => [
                     'x' => $player->pivot->position_x,
@@ -114,7 +108,6 @@ class GameController extends Controller
                 'id' => $user->id,
                 'name' => $user->name,
                 'color' => $user->color,
-                'class' => $user->class?->value ?? 'warrior',
             ],
             'players' => $otherPlayers,
         ]);
@@ -132,6 +125,7 @@ class GameController extends Controller
             'z' => ['required', 'numeric'],
             'rotation' => ['required', 'numeric'],
             'animation' => ['sometimes', 'string'],
+            'crouching' => ['sometimes', 'boolean'],
         ]);
 
         $playerId = $validated['player_id'];
@@ -142,6 +136,7 @@ class GameController extends Controller
         ];
         $rotation = $validated['rotation'];
         $animation = $validated['animation'] ?? 'idle';
+        $crouching = $validated['crouching'] ?? false;
 
         // Update player position in database
         $game = $this->getOrCreateGame();
@@ -160,6 +155,7 @@ class GameController extends Controller
             position: $position,
             rotation: $rotation,
             animation: $animation,
+            crouching: $crouching,
         ))->toOthers();
 
         return response()->json(['success' => true]);

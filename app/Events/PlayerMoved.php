@@ -21,6 +21,7 @@ class PlayerMoved implements ShouldBroadcastNow
         public array $position,
         public float $rotation,
         public string $animation = 'idle',
+        public bool $crouching = false,
     ) {
         //
     }
@@ -44,6 +45,7 @@ class PlayerMoved implements ShouldBroadcastNow
             'position' => $this->position,
             'rotation' => $this->rotation,
             'animation' => $this->animation,
+            'crouching' => $this->crouching,
         ];
     }
 }

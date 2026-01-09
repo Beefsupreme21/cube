@@ -2,10 +2,7 @@ import * as THREE from 'three';
 
 export function createScene() {
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87ceeb);
-    
-    // Add fog for atmosphere
-    scene.fog = new THREE.Fog(0x87ceeb, 50, 150);
+    scene.background = new THREE.Color(0x1a1a1a); // Dark background
     
     return scene;
 }
@@ -28,181 +25,194 @@ export function setupLighting(scene) {
     scene.add(directionalLight);
 }
 
+
 /**
- * Create a simple tree
+ * Get the ground height at a given X, Z position
+ * Returns the Y position the player should be at
  */
-function createTree(x, z, scale = 1) {
-    const tree = new THREE.Group();
-    
-    // Trunk
-    const trunkGeometry = new THREE.CylinderGeometry(0.3 * scale, 0.4 * scale, 2 * scale, 8);
-    const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
-    const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
-    trunk.position.y = 1 * scale;
-    trunk.castShadow = true;
-    tree.add(trunk);
-    
-    // Foliage (3 layers of cones)
-    const foliageMaterial = new THREE.MeshStandardMaterial({ color: 0x228b22 });
-    
-    const foliage1 = new THREE.Mesh(
-        new THREE.ConeGeometry(1.5 * scale, 2 * scale, 8),
-        foliageMaterial
-    );
-    foliage1.position.y = 2.5 * scale;
-    foliage1.castShadow = true;
-    tree.add(foliage1);
-    
-    const foliage2 = new THREE.Mesh(
-        new THREE.ConeGeometry(1.2 * scale, 1.5 * scale, 8),
-        foliageMaterial
-    );
-    foliage2.position.y = 3.5 * scale;
-    foliage2.castShadow = true;
-    tree.add(foliage2);
-    
-    const foliage3 = new THREE.Mesh(
-        new THREE.ConeGeometry(0.8 * scale, 1 * scale, 8),
-        foliageMaterial
-    );
-    foliage3.position.y = 4.3 * scale;
-    foliage3.castShadow = true;
-    tree.add(foliage3);
-    
-    tree.position.set(x, 0, z);
-    return tree;
+export function getGroundHeight(x, z) {
+    return 1; // Default ground level (flat ground)
 }
 
 /**
- * Create a rock
+ * Create an 8x8 tile grid
  */
-function createRock(x, z, scale = 1) {
-    const rockGeometry = new THREE.DodecahedronGeometry(0.5 * scale, 0);
-    const rockMaterial = new THREE.MeshStandardMaterial({ 
-        color: 0x808080,
-        roughness: 0.9,
-        flatShading: true,
-    });
-    const rock = new THREE.Mesh(rockGeometry, rockMaterial);
-    rock.position.set(x, 0.3 * scale, z);
-    rock.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
-    rock.scale.set(
-        scale * (0.8 + Math.random() * 0.4),
-        scale * (0.6 + Math.random() * 0.3),
-        scale * (0.8 + Math.random() * 0.4)
-    );
-    rock.castShadow = true;
-    return rock;
-}
-
-/**
- * Create a bush
- */
-function createBush(x, z, scale = 1) {
-    const bush = new THREE.Group();
-    const bushMaterial = new THREE.MeshStandardMaterial({ color: 0x2d5a27 });
+function createTileGrid(centerX = 0, centerZ = 0, tileSize = 2, gap = 0.2) {
+    const grid = new THREE.Group();
+    const gridSize = 8;
     
-    // Multiple spheres for bushy look
-    for (let i = 0; i < 5; i++) {
-        const sphereGeom = new THREE.SphereGeometry(0.3 * scale * (0.8 + Math.random() * 0.4), 8, 8);
-        const sphere = new THREE.Mesh(sphereGeom, bushMaterial);
-        sphere.position.set(
-            (Math.random() - 0.5) * 0.5 * scale,
-            0.3 * scale + Math.random() * 0.2 * scale,
-            (Math.random() - 0.5) * 0.5 * scale
-        );
-        sphere.castShadow = true;
-        bush.add(sphere);
+    // Calculate total size including gaps
+    const totalSize = (gridSize * tileSize) + ((gridSize - 1) * gap);
+    const startOffset = -totalSize / 2 + tileSize / 2;
+    
+    // Create alternating colors for checkerboard pattern
+    const color1 = new THREE.Color(0x4a7c59); // Dark green
+    const color2 = new THREE.Color(0x5a8f4a); // Light green
+    
+    for (let row = 0; row < gridSize; row++) {
+        for (let col = 0; col < gridSize; col++) {
+            const x = startOffset + col * (tileSize + gap);
+            const z = startOffset + row * (tileSize + gap);
+            
+            // Checkerboard pattern
+            const isEven = (row + col) % 2 === 0;
+            const tileColor = isEven ? color1 : color2;
+            
+            // Create tile
+            const tileGeometry = new THREE.BoxGeometry(tileSize, 0.1, tileSize);
+            const tileMaterial = new THREE.MeshStandardMaterial({ 
+                color: tileColor,
+                roughness: 0.8,
+            });
+            const tile = new THREE.Mesh(tileGeometry, tileMaterial);
+            tile.position.set(x, 0.05, z);
+            tile.receiveShadow = true;
+            tile.castShadow = false;
+            
+            // Store grid position for reference
+            tile.userData.gridRow = row;
+            tile.userData.gridCol = col;
+            
+            grid.add(tile);
+        }
     }
     
-    bush.position.set(x, 0, z);
-    return bush;
+    grid.position.set(centerX, 0, centerZ);
+    grid.userData.isTileGrid = true;
+    grid.userData.tileSize = tileSize;
+    grid.userData.gap = gap;
+    grid.userData.gridSize = gridSize;
+    
+    return grid;
+}
+
+/**
+ * Create an interactive button/pillar
+ */
+function createButton(x, z, height = 2) {
+    const button = new THREE.Group();
+    
+    // Pillar base
+    const pillarGeometry = new THREE.CylinderGeometry(0.5, 0.6, height, 8);
+    const pillarMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0x888888,
+        metalness: 0.3,
+        roughness: 0.7,
+    });
+    const pillar = new THREE.Mesh(pillarGeometry, pillarMaterial);
+    pillar.position.y = height / 2;
+    pillar.castShadow = true;
+    pillar.receiveShadow = true;
+    button.add(pillar);
+    
+    // Button top (glowing when active)
+    const buttonTopGeometry = new THREE.CylinderGeometry(0.4, 0.4, 0.2, 8);
+    const buttonTopMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0xff6b6b,
+        emissive: 0xff6b6b,
+        emissiveIntensity: 0.3,
+    });
+    const buttonTop = new THREE.Mesh(buttonTopGeometry, buttonTopMaterial);
+    buttonTop.position.y = height;
+    buttonTop.name = 'buttonTop';
+    button.add(buttonTop);
+    
+    button.position.set(x, 0, z);
+    button.userData.isButton = true;
+    button.userData.interactable = true;
+    button.userData.interactionRange = 3; // Distance player needs to be to interact
+    
+    return button;
+}
+
+/**
+ * Change all tiles in a grid to a specific color
+ */
+export function setTileGridColor(tileGrid, color) {
+    if (!tileGrid || !tileGrid.userData.isTileGrid) return;
+    
+    const newColor = new THREE.Color(color);
+    tileGrid.traverse((child) => {
+        if (child.isMesh && child.material) {
+            child.material.color.copy(newColor);
+        }
+    });
+}
+
+/**
+ * Get the tile grid from the scene
+ */
+let tileGridRef = null;
+
+export function getTileGrid() {
+    return tileGridRef;
+}
+
+/**
+ * Create a simple game UI overlay (text in corner)
+ */
+export function createGameUI() {
+    const uiDiv = document.createElement('div');
+    uiDiv.id = 'game-ui';
+    uiDiv.style.cssText = `
+        position: fixed;
+        top: 20px;
+        left: 20px;
+        color: #00ff00;
+        font-family: 'Space Mono', monospace;
+        font-size: 24px;
+        font-weight: bold;
+        pointer-events: none;
+        text-shadow: 0 0 10px rgba(0, 255, 0, 0.8);
+        z-index: 1000;
+        white-space: pre-line;
+        line-height: 1.5;
+    `;
+    uiDiv.textContent = 'SCORE: 0\nWAVE: 1';
+    
+    document.body.appendChild(uiDiv);
+    return uiDiv;
+}
+
+/**
+ * Update the game UI text
+ */
+export function setGameUIText(text) {
+    const uiDiv = document.getElementById('game-ui');
+    if (uiDiv) {
+        uiDiv.textContent = text;
+    }
 }
 
 export function createGround(scene) {
-    const groundGeometry = new THREE.PlaneGeometry(200, 200);
-    const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x4a7c59 });
+    // Calculate tile grid size to determine ground size
+    // Tile grid is 8x8 with tiles of size 2 and gap 0.2
+    // Total size = 8 * 2 + 7 * 0.2 = 16 + 1.4 = 17.4
+    // Add some margin around it (about 3-4 units on each side)
+    const groundSize = 25; // Slightly larger than tile grid
+    
+    // Create simple black/gray ground
+    const groundGeometry = new THREE.PlaneGeometry(groundSize, groundSize);
+    const groundMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0x2a2a2a, // Dark gray
+        roughness: 0.9,
+    });
     const ground = new THREE.Mesh(groundGeometry, groundMaterial);
     ground.rotation.x = -Math.PI / 2;
+    ground.position.set(0, 0, 0); // Center at spawn point
     ground.receiveShadow = true;
     scene.add(ground);
     
-    // Red circle at spawn point
-    const circleGeometry = new THREE.RingGeometry(2, 2.2, 32);
-    const circleMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide });
-    const spawnCircle = new THREE.Mesh(circleGeometry, circleMaterial);
-    spawnCircle.rotation.x = -Math.PI / 2;
-    spawnCircle.position.y = 0.01;
-    scene.add(spawnCircle);
+    // Add 8x8 tile grid (positioned at spawn point)
+    const tileGrid = createTileGrid(0, 0, 2, 0.2);
+    scene.add(tileGrid);
+    tileGridRef = tileGrid; // Store reference for interaction
     
-    // Add trees in a scattered pattern (avoiding spawn area)
-    const treePositions = [
-        // Near trees
-        { x: 15, z: 10, scale: 1.2 },
-        { x: -12, z: 15, scale: 1.0 },
-        { x: 18, z: -8, scale: 1.1 },
-        { x: -15, z: -12, scale: 0.9 },
-        { x: 8, z: -18, scale: 1.3 },
-        { x: -20, z: 5, scale: 1.0 },
-        // Medium distance
-        { x: 30, z: 25, scale: 1.4 },
-        { x: -28, z: 30, scale: 1.2 },
-        { x: 35, z: -20, scale: 1.1 },
-        { x: -32, z: -25, scale: 1.3 },
-        { x: 25, z: -35, scale: 1.0 },
-        { x: -25, z: -35, scale: 1.2 },
-        { x: 40, z: 10, scale: 1.1 },
-        { x: -38, z: 15, scale: 1.4 },
-        // Far trees
-        { x: 50, z: 40, scale: 1.5 },
-        { x: -45, z: 45, scale: 1.3 },
-        { x: 55, z: -30, scale: 1.2 },
-        { x: -50, z: -40, scale: 1.4 },
-        { x: 35, z: 50, scale: 1.1 },
-        { x: -40, z: 55, scale: 1.3 },
-        { x: 60, z: 0, scale: 1.5 },
-        { x: -55, z: -10, scale: 1.2 },
-    ];
+    // Add interactive button near the tile grid
+    const button = createButton(0, 12, 2);
+    scene.add(button);
+    button.userData.tileGrid = tileGrid; // Link button to tile grid
     
-    treePositions.forEach(pos => {
-        scene.add(createTree(pos.x, pos.z, pos.scale));
-    });
-    
-    // Add rocks
-    const rockPositions = [
-        { x: 10, z: 5, scale: 1.0 },
-        { x: -8, z: 8, scale: 0.8 },
-        { x: 12, z: -5, scale: 1.2 },
-        { x: -10, z: -8, scale: 0.7 },
-        { x: 25, z: 15, scale: 1.5 },
-        { x: -22, z: 20, scale: 1.1 },
-        { x: 30, z: -15, scale: 1.3 },
-        { x: -28, z: -18, scale: 0.9 },
-        { x: 5, z: 20, scale: 0.6 },
-        { x: -5, z: -22, scale: 1.0 },
-    ];
-    
-    rockPositions.forEach(pos => {
-        scene.add(createRock(pos.x, pos.z, pos.scale));
-    });
-    
-    // Add bushes
-    const bushPositions = [
-        { x: 8, z: 12, scale: 1.0 },
-        { x: -6, z: 10, scale: 0.8 },
-        { x: 14, z: -10, scale: 1.1 },
-        { x: -12, z: -6, scale: 0.9 },
-        { x: 20, z: 8, scale: 1.2 },
-        { x: -18, z: 12, scale: 1.0 },
-        { x: 22, z: -18, scale: 0.8 },
-        { x: -20, z: -20, scale: 1.1 },
-        { x: 35, z: 30, scale: 1.3 },
-        { x: -30, z: 35, scale: 1.0 },
-        { x: 40, z: -25, scale: 0.9 },
-        { x: -35, z: -30, scale: 1.2 },
-    ];
-    
-    bushPositions.forEach(pos => {
-        scene.add(createBush(pos.x, pos.z, pos.scale));
-    });
+    // Create game UI overlay (text in corner)
+    createGameUI();
 }

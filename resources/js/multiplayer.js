@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { AnimationController } from './animations';
-import { createCharacterMesh } from './player';
+import { createCharacterMesh, applyCrouch } from './player';
+import { createDustEffect, emitDust, updateDust } from './effects';
 
 // Remote player data store
 const remotePlayers = new Map();
@@ -20,7 +21,10 @@ const BROADCAST_INTERVAL = 33;
 let lastBroadcastTime = 0;
 let lastPosition = { x: 0, y: 0, z: 0 };
 let lastRotation = 0;
+let lastAnimation = 'idle';
+let lastCrouching = false;
 let currentAnimation = 'idle';
+let currentCrouching = false;
 
 /**
  * Create a name label that floats above a player
@@ -48,11 +52,11 @@ function createNameLabel(name, isLocal = false) {
 }
 
 /**
- * Create a remote player mesh with their chosen color and class
+ * Create a remote player mesh with their chosen color
  */
 function createRemotePlayerMesh(player) {
-    // Use shared character mesh creation with player's color and class
-    const character = createCharacterMesh(player.color || '#4a90d9', player.class || 'warrior');
+    // Use shared character mesh creation with player's color
+    const character = createCharacterMesh(player.color || '#4a90d9');
     
     // Add name label
     const label = createNameLabel(player.name, false);
@@ -75,17 +79,24 @@ function addRemotePlayer(player, position = { x: 0, y: 0, z: 0 }, rotation = 0) 
     // Create animation controller for this remote player
     const animator = new AnimationController(mesh);
     
+    // Create dust effect for remote player
+    const dustEffect = createDustEffect();
+    mesh.add(dustEffect);
+    dustEffect.position.set(0, 0, 0); // At feet level
+    
     // Store player data with velocity for prediction
     const playerData = {
         player,
         mesh,
         label,
         animator,
+        dustEffect,
         targetPosition: new THREE.Vector3(position.x, 0, position.z),
         targetRotation: rotation,
         velocity: new THREE.Vector3(0, 0, 0),
         lastUpdateTime: Date.now(),
         previousPosition: new THREE.Vector3(position.x, 0, position.z),
+        previousAnimation: 'idle',
     };
     
     remotePlayers.set(player.id, playerData);
@@ -97,7 +108,7 @@ function addRemotePlayer(player, position = { x: 0, y: 0, z: 0 }, rotation = 0) 
 /**
  * Update a remote player's position with velocity tracking
  */
-function updateRemotePlayer(playerId, position, rotation, animation = null) {
+function updateRemotePlayer(playerId, position, rotation, animation = null, isCrouching = false) {
     if (playerId === localPlayer.id) return;
     
     const playerData = remotePlayers.get(playerId);
@@ -124,6 +135,9 @@ function updateRemotePlayer(playerId, position, rotation, animation = null) {
     if (animation) {
         playerData.receivedAnimation = animation;
     }
+    
+    // Store crouch state
+    playerData.isCrouching = isCrouching;
 }
 
 /**
@@ -179,8 +193,35 @@ export function updateRemotePlayers(deltaTime) {
             } else if (playerData.receivedAnimation !== 'jump') {
                 playerData.animator.play(playerData.receivedAnimation);
             }
+            
+            // Emit dust continuously while remote player is running
+            if (playerData.receivedAnimation === 'run' && playerData.mesh.position.y < 1.5) {
+                const moveDirection = new THREE.Vector3(
+                    Math.sin(playerData.mesh.rotation.y),
+                    0,
+                    Math.cos(playerData.mesh.rotation.y)
+                );
+                
+                // Position dust further behind the player (opposite to movement direction)
+                const backwardOffset = 0.8; // Distance behind player (increased from 0.3)
+                const footPosition = new THREE.Vector3(
+                    playerData.mesh.position.x - moveDirection.x * backwardOffset,
+                    playerData.mesh.position.y - 0.4,
+                    playerData.mesh.position.z - moveDirection.z * backwardOffset
+                );
+                
+                emitDust(playerData.dustEffect, footPosition, moveDirection, deltaTime * 30);
+            }
         }
         playerData.animator.update(deltaTime);
+        
+        // Apply crouch to remote player
+        if (playerData.isCrouching !== undefined) {
+            applyCrouch(playerData.mesh, playerData.isCrouching, deltaTime);
+        }
+        
+        // Update dust effect for remote player
+        updateDust(playerData.dustEffect, deltaTime);
     });
 }
 
@@ -201,6 +242,13 @@ export function setAnimation(animationName) {
 }
 
 /**
+ * Set the current crouch state to broadcast
+ */
+export function setCrouching(isCrouching) {
+    currentCrouching = isCrouching;
+}
+
+/**
  * Broadcast local player position via HTTP POST
  */
 export function broadcastPosition(playerState) {
@@ -212,15 +260,19 @@ export function broadcastPosition(playerState) {
     const pos = playerState.position;
     const rot = playerState.rotation;
     
-    // Only broadcast if position/rotation changed significantly
+    // Only broadcast if position/rotation/animation/crouch changed significantly
     const posDelta = Math.abs(pos.x - lastPosition.x) + Math.abs(pos.z - lastPosition.z) + Math.abs(pos.y - lastPosition.y);
     const rotDelta = Math.abs(rot - lastRotation);
+    const animChanged = currentAnimation !== lastAnimation;
+    const crouchChanged = currentCrouching !== lastCrouching;
     
-    if (posDelta < 0.01 && rotDelta < 0.01) return;
+    if (posDelta < 0.01 && rotDelta < 0.01 && !animChanged && !crouchChanged) return;
     
     lastBroadcastTime = now;
     lastPosition = { x: pos.x, y: pos.y, z: pos.z };
     lastRotation = rot;
+    lastAnimation = currentAnimation;
+    lastCrouching = currentCrouching;
     
     // Send position update to server (include socket ID so we don't receive our own update)
     fetch('/game/move', {
@@ -294,7 +346,7 @@ export function initMultiplayer(gameScene, config, playerMesh, camera, renderer)
         
         // Listen for player moved events
         channel.listen('.player-moved', (data) => {
-            updateRemotePlayer(data.player_id, data.position, data.rotation, data.animation);
+            updateRemotePlayer(data.player_id, data.position, data.rotation, data.animation, data.crouching || false);
         });
         
         // Listen for player left events

@@ -109,52 +109,6 @@
                 transform: scale(1.15);
             }
             
-            .class-picker {
-                display: flex;
-                justify-content: center;
-                gap: 16px;
-                flex-wrap: wrap;
-            }
-            
-            .class-option {
-                background: rgba(0, 0, 0, 0.3);
-                border: 2px solid rgba(255, 255, 255, 0.2);
-                border-radius: 12px;
-                padding: 16px 20px;
-                cursor: pointer;
-                transition: all 0.2s;
-                text-align: center;
-                min-width: 120px;
-            }
-            
-            .class-option:hover {
-                border-color: rgba(255, 255, 255, 0.4);
-                background: rgba(255, 255, 255, 0.1);
-            }
-            
-            .class-option.selected {
-                border-color: #e94560;
-                background: rgba(233, 69, 96, 0.2);
-                box-shadow: 0 0 20px rgba(233, 69, 96, 0.3);
-            }
-            
-            .class-icon {
-                font-size: 2rem;
-                margin-bottom: 8px;
-            }
-            
-            .class-name {
-                color: #fff;
-                font-weight: 700;
-                font-size: 0.875rem;
-                text-transform: uppercase;
-                letter-spacing: 1px;
-            }
-            
-            .class-option.selected .class-name {
-                color: #e94560;
-            }
-            
             .join-btn {
                 width: 100%;
                 margin-top: 24px;
@@ -202,23 +156,6 @@
                     autocomplete="off"
                 >
                 
-                <label class="picker-label">Choose your class</label>
-                <div class="class-picker" id="class-picker">
-                    @php $currentClass = $user->class?->value ?? 'warrior'; @endphp
-                    <button type="button" class="class-option {{ $currentClass === 'warrior' ? 'selected' : '' }}" data-class="warrior">
-                        <div class="class-icon">⚔️</div>
-                        <div class="class-name">Warrior</div>
-                    </button>
-                    <button type="button" class="class-option {{ $currentClass === 'hunter' ? 'selected' : '' }}" data-class="hunter">
-                        <div class="class-icon">🏹</div>
-                        <div class="class-name">Hunter</div>
-                    </button>
-                    <button type="button" class="class-option {{ $currentClass === 'mage' ? 'selected' : '' }}" data-class="mage">
-                        <div class="class-icon">🔮</div>
-                        <div class="class-name">Mage</div>
-                    </button>
-                </div>
-                
                 <label class="picker-label">Choose your color</label>
                 <div class="color-picker" id="color-picker">
                     @php
@@ -243,7 +180,6 @@
                     id: @json($user->id),
                     name: @json($user->name),
                     color: @json($user->color),
-                    class: @json($user->class?->value ?? 'warrior'),
                 },
                 gameId: @json($gameId),
             };
